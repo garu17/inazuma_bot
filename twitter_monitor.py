@@ -142,9 +142,9 @@ class TwitterMonitor:
             # Get the last tweet ID we've seen from this user
             since_id = self.last_tweet_ids.get(username)
             
-            # Get recent tweets - optimized for free plan (only get what we need)
+            # Get recent tweets - optimized for free plan (only 5 tweets to save API calls)
             params = {
-                'max_results': 10,
+                'max_results': 5,
                 'tweet_fields': ['created_at', 'public_metrics'],
                 'user_fields': ['username']
             }
@@ -155,6 +155,16 @@ class TwitterMonitor:
             tweets = self.twitter_api.get_users_tweets(user_id, **params)
             
             if not tweets or not tweets.data:
+                # If it's the first check and no tweets found, initialize with latest tweet ID
+                if not since_id:
+                    tweets_init = self.twitter_api.get_users_tweets(
+                        user_id,
+                        max_results=1,
+                        tweet_fields=['created_at']
+                    )
+                    if tweets_init and tweets_init.data:
+                        self.last_tweet_ids[username] = tweets_init.data[0]['id']
+                        print(f'✅ Initialized tracking for @{username}. Waiting for new tweets...')
                 return
             
             # Process tweets in reverse order (oldest first)
@@ -164,25 +174,28 @@ class TwitterMonitor:
                 
                 # ⭐ FILTRO: Si contiene #spoilersie, ignorar el tweet
                 if '#spoilersie' in tweet_text.lower():
-                    print(f'⏭️  Skipping tweet from @{username} (contains #spoilersie): {tweet_id}')
+                    print(f'⏭️  Skipping tweet from @{username} (contains #spoilersie)')
                     self.last_tweet_ids[username] = tweet_id
                     continue
                 
                 # Update last seen tweet ID
                 self.last_tweet_ids[username] = tweet_id
                 
-                # Post to Discord
+                # Post to Discord with better separation
                 tweet_url = f'https://twitter.com/{username}/status/{tweet_id}'
                 
+                # Create a visually separated message
                 message = (
-                    f'🐦 **New tweet from @{username}**\n\n'
-                    f'{tweet_text}\n\n'
-                    f'[View on Twitter]({tweet_url})'
-                    f'\n\n'
+                    f'\n═══════════════════════════════════════════════\n'
+                    f'🐦 **Tweet from @{username}**\n'
+                    f'═══════════════════════════════════════════════\n'
+                    f'\n{tweet_text}\n'
+                    f'\n[🔗 View on Twitter]({tweet_url})\n'
+                    f'═══════════════════════════════════════════════\n'
                 )
                 
                 await channel.send(message)
-                print(f'✅ Posted tweet from @{username}: {tweet_id}')
+                print(f'✅ Posted new tweet from @{username}')
         
         except tweepy.TweepyException as e:
             if '429' in str(e):  # Rate limit
