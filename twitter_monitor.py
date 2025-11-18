@@ -178,6 +178,7 @@ class TwitterMonitor:
                     f'🐦 **New tweet from @{username}**\n\n'
                     f'{tweet_text}\n\n'
                     f'[View on Twitter]({tweet_url})'
+                    f'\n\n'
                 )
                 
                 await channel.send(message)
