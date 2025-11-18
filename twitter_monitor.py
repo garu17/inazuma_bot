@@ -3,7 +3,7 @@ import asyncio
 from typing import Dict, Set, List
 from datetime import datetime
 import tweepy
-from discord import Client, TextChannel
+from discord import Client, TextChannel, Embed, Color
 
 
 class TwitterMonitor:
@@ -75,6 +75,11 @@ class TwitterMonitor:
         print(f'⏱️  Check interval: {check_interval} seconds')
         print(f'📢 Channel ID: {channel_id}')
         
+        # Initialize all users on startup - set their last tweet ID
+        print(f'\n⏳ Initializing tracking for all users...')
+        await self._initialize_users(usernames)
+        print(f'✅ All users initialized. Waiting for NEW tweets only.\n')
+        
         while True:
             try:
                 # Wait for Discord to be ready
@@ -130,6 +135,32 @@ class TwitterMonitor:
         
         return None
     
+    async def _initialize_users(self, usernames: List[str]) -> None:
+        """Initialize tracking for all users by setting their latest tweet ID"""
+        for username in usernames:
+            try:
+                user_id = await self._get_user_id(username)
+                if not user_id:
+                    print(f'❌ Cannot initialize @{username}: user not found')
+                    continue
+                
+                # Get the latest tweet
+                latest_tweets = self.twitter_api.get_users_tweets(
+                    user_id,
+                    max_results=1,
+                    tweet_fields=['created_at']
+                )
+                
+                if latest_tweets and latest_tweets.data:
+                    tweet_id = latest_tweets.data[0]['id']
+                    self.last_tweet_ids[username] = tweet_id
+                    print(f'   ✓ @{username} - will check for tweets AFTER this point')
+                else:
+                    print(f'   ⚠️  @{username} - no tweets found, will start from next tweet')
+            
+            except Exception as e:
+                print(f'   ❌ Error initializing @{username}: {e}')
+    
     async def _check_and_post_tweets(self, username: str, channel: TextChannel) -> None:
         """Check for new tweets and post them to Discord"""
         try:
@@ -155,16 +186,6 @@ class TwitterMonitor:
             tweets = self.twitter_api.get_users_tweets(user_id, **params)
             
             if not tweets or not tweets.data:
-                # If it's the first check and no tweets found, initialize with latest tweet ID
-                if not since_id:
-                    tweets_init = self.twitter_api.get_users_tweets(
-                        user_id,
-                        max_results=1,
-                        tweet_fields=['created_at']
-                    )
-                    if tweets_init and tweets_init.data:
-                        self.last_tweet_ids[username] = tweets_init.data[0]['id']
-                        print(f'✅ Initialized tracking for @{username}. Waiting for new tweets...')
                 return
             
             # Process tweets in reverse order (oldest first)
@@ -181,20 +202,23 @@ class TwitterMonitor:
                 # Update last seen tweet ID
                 self.last_tweet_ids[username] = tweet_id
                 
-                # Post to Discord with better separation
+                # Post to Discord with mobile-friendly format
                 tweet_url = f'https://twitter.com/{username}/status/{tweet_id}'
                 
-                # Create a visually separated message
-                message = (
-                    f'\n═══════════════════════════════════════════════\n'
-                    f'🐦 **Tweet from @{username}**\n'
-                    f'═══════════════════════════════════════════════\n'
-                    f'\n{tweet_text}\n'
-                    f'\n[🔗 View on Twitter]({tweet_url})\n'
-                    f'═══════════════════════════════════════════════\n'
+                # Mobile-optimized format with embeds
+                embed = Embed(
+                    description=tweet_text,
+                    color=Color.blue(),
+                    url=tweet_url
                 )
+                embed.set_author(
+                    name=f'@{username}',
+                    url=f'https://twitter.com/{username}',
+                    icon_url='https://abs.twimg.com/icons/apple-touch-icon-192x192.png'
+                )
+                embed.set_footer(text='Twitter', icon_url='https://abs.twimg.com/icons/apple-touch-icon-192x192.png')
                 
-                await channel.send(message)
+                await channel.send(embed=embed)
                 print(f'✅ Posted new tweet from @{username}')
         
         except tweepy.TweepyException as e:
