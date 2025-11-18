@@ -1,8 +1,16 @@
 from typing import Final
 import os
+import asyncio
+import sys
 from dotenv import load_dotenv
 from discord import Intents, Client, Message
 from responses import get_response
+from twitter_monitor import start_twitter_monitoring
+
+# Fix encoding for Windows
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # STEP 0: LOAD OUR TOKEN FROM SOMEWHERE SAFE
 load_dotenv()
@@ -34,6 +42,17 @@ async def send_message(message: Message, user_message: str) -> None:
 @client.event
 async def on_ready() -> None:
     print(f'{client.user} is now running!')
+    
+    # Print available guilds and channels for debugging
+    print('\n=== AVAILABLE SERVERS AND CHANNELS ===')
+    for guild in client.guilds:
+        print(f'\nServer: {guild.name} (ID: {guild.id})')
+        for channel in guild.text_channels:
+            print(f'   # {channel.name} (ID: {channel.id})')
+    print('\n=====================================\n')
+    
+    # Start Twitter monitoring in the background
+    asyncio.create_task(start_twitter_monitoring(client))
 
 
 # STEP 4: HANDLING INCOMING MESSAGES
